@@ -1,5 +1,5 @@
 [package]
-name = "spl-token-test"
+name = "test-token-solana"
 version = "0.1.0"
 description = "SPL Token"
 authors = ["BaldyAsh <antongrigorjev2010@gmail.com>"]
@@ -22,7 +22,7 @@ thiserror = "1.0"
 solana-sdk = "1.7.4"
 
 [lib]
-name = "spl_token_test"
+name = "test_token_solana"
 crate-type = ["cdylib", "lib"]
 
 [package.metadata.docs.rs]

@@ -17,7 +17,7 @@ use crate::{
 
 pub struct Processor {}
 impl Processor {
-    pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], input: &[u8]) -> ProgramResult {
+    pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], input: &[u8]) -> ProgramResult {
         let instruction = TokenInstruction::unpack(input)?;
 
         match instruction {
@@ -31,6 +31,22 @@ impl Processor {
             TokenInstruction::InitializeAccount => {
                 msg!("Instruction: InitializeAccount");
                 Self::process_initialize_account(accounts)
+            }
+            TokenInstruction::Transfer { amount } => {
+                msg!("Instruction: Transfer");
+                Self::process_transfer(accounts, amount)
+            }
+            TokenInstruction::Approve { amount } => {
+                msg!("Instruction: Approve");
+                Self::process_approve(accounts, amount)
+            }
+            TokenInstruction::MintTo { amount } => {
+                msg!("Instruction: MintTo");
+                Self::process_mint_to(accounts, amount)
+            }
+            TokenInstruction::Burn { amount } => {
+                msg!("Instruction: Burn");
+                Self::process_burn(accounts, amount)
             }
         }
     }
@@ -92,6 +108,208 @@ impl Processor {
 
         Account::pack(account, &mut new_account_info.data.borrow_mut())?;
 
+        Ok(())
+    }
+
+    fn process_transfer(
+        accounts: &[AccountInfo],
+        amount: u64,
+    ) -> ProgramResult {
+        let account_info_iter = &mut accounts.iter();
+
+        let source_account_info = next_account_info(account_info_iter)?;
+        let dest_account_info = next_account_info(account_info_iter)?;
+        if source_account_info.key == dest_account_info.key {
+            return Err(TokenError::SelfTransfer.into());
+        }
+
+        let authority_info = next_account_info(account_info_iter)?;
+
+        let mut source_account = Account::unpack(&source_account_info.data.borrow())?;
+        let mut dest_account = Account::unpack(&dest_account_info.data.borrow())?;
+
+        if source_account.amount < amount {
+            return Err(TokenError::InsufficientFunds.into());
+        }
+        if source_account.mint != dest_account.mint {
+            return Err(TokenError::MintMismatch.into());
+        }
+
+        match source_account.delegate {
+            COption::Some(ref delegate) if authority_info.key == delegate => {
+                Self::validate_owner(
+                    delegate,
+                    authority_info,
+                )?;
+
+                if source_account.delegated_amount < amount {
+                    return Err(TokenError::InsufficientFunds.into());
+                }
+                
+                // Remove delegated amount from transfer authority
+                source_account.delegated_amount = source_account
+                    .delegated_amount
+                    .checked_sub(amount)
+                    .ok_or(TokenError::Overflow)?;
+
+                if source_account.delegated_amount == 0 {
+                    source_account.delegate = COption::None;
+                }
+            }
+            _ => Self::validate_owner(
+                &source_account.owner,
+                authority_info,
+            )?,
+        };
+
+        source_account.amount = source_account
+            .amount
+            .checked_sub(amount)
+            .ok_or(TokenError::Overflow)?;
+        dest_account.amount = dest_account
+            .amount
+            .checked_add(amount)
+            .ok_or(TokenError::Overflow)?;
+
+        Account::pack(source_account, &mut source_account_info.data.borrow_mut())?;
+        Account::pack(dest_account, &mut dest_account_info.data.borrow_mut())?;
+
+        Ok(())
+    }
+
+    fn process_approve(
+        accounts: &[AccountInfo],
+        amount: u64,
+    ) -> ProgramResult {
+        let account_info_iter = &mut accounts.iter();
+
+        let source_account_info = next_account_info(account_info_iter)?;
+        let delegate_info = next_account_info(account_info_iter)?;
+        let owner_info = next_account_info(account_info_iter)?;
+
+        let mut source_account = Account::unpack(&source_account_info.data.borrow())?;
+
+        Self::validate_owner(
+            &source_account.owner,
+            owner_info,
+        )?;
+
+        source_account.delegate = COption::Some(*delegate_info.key);
+        source_account.delegated_amount = amount;
+
+        Account::pack(source_account, &mut source_account_info.data.borrow_mut())?;
+
+        Ok(())
+    }
+
+    fn process_mint_to(
+        accounts: &[AccountInfo],
+        amount: u64,
+    ) -> ProgramResult {
+        let account_info_iter = &mut accounts.iter();
+        let mint_info = next_account_info(account_info_iter)?;
+        let dest_account_info = next_account_info(account_info_iter)?;
+        let owner_info = next_account_info(account_info_iter)?;
+
+        let mut dest_account = Account::unpack(&dest_account_info.data.borrow())?;
+        if mint_info.key != &dest_account.mint {
+            return Err(TokenError::MintMismatch.into());
+        }
+
+        let mut mint = Mint::unpack(&mint_info.data.borrow())?;
+        match mint.mint_authority {
+            COption::Some(mint_authority) => Self::validate_owner(
+                &mint_authority,
+                owner_info,
+            )?,
+            COption::None => return Err(TokenError::FixedSupply.into()),
+        }
+
+        dest_account.amount = dest_account
+            .amount
+            .checked_add(amount)
+            .ok_or(TokenError::Overflow)?;
+
+        mint.supply = mint
+            .supply
+            .checked_add(amount)
+            .ok_or(TokenError::Overflow)?;
+
+        Account::pack(dest_account, &mut dest_account_info.data.borrow_mut())?;
+        Mint::pack(mint, &mut mint_info.data.borrow_mut())?;
+
+        Ok(())
+    }
+
+    fn process_burn(
+        accounts: &[AccountInfo],
+        amount: u64,
+    ) -> ProgramResult {
+        let account_info_iter = &mut accounts.iter();
+
+        let source_account_info = next_account_info(account_info_iter)?;
+        let mint_info = next_account_info(account_info_iter)?;
+        let authority_info = next_account_info(account_info_iter)?;
+
+        let mut source_account = Account::unpack(&source_account_info.data.borrow())?;
+        if source_account.amount < amount {
+            return Err(TokenError::InsufficientFunds.into());
+        }
+        if mint_info.key != &source_account.mint {
+            return Err(TokenError::MintMismatch.into());
+        }
+
+        match source_account.delegate {
+            COption::Some(ref delegate) if authority_info.key == delegate => {
+                Self::validate_owner(
+                    delegate,
+                    authority_info,
+                )?;
+
+                if source_account.delegated_amount < amount {
+                    return Err(TokenError::InsufficientFunds.into());
+                }
+                source_account.delegated_amount = source_account
+                    .delegated_amount
+                    .checked_sub(amount)
+                    .ok_or(TokenError::Overflow)?;
+                if source_account.delegated_amount == 0 {
+                    source_account.delegate = COption::None;
+                }
+            }
+            _ => Self::validate_owner(
+                &source_account.owner,
+                authority_info,
+            )?,
+        }
+
+        source_account.amount = source_account
+            .amount
+            .checked_sub(amount)
+            .ok_or(TokenError::Overflow)?;
+
+        let mut mint = Mint::unpack(&mint_info.data.borrow())?;
+        mint.supply = mint
+            .supply
+            .checked_sub(amount)
+            .ok_or(TokenError::Overflow)?;
+
+        Account::pack(source_account, &mut source_account_info.data.borrow_mut())?;
+        Mint::pack(mint, &mut mint_info.data.borrow_mut())?;
+
+        Ok(())
+    }
+
+    fn validate_owner(
+        expected_owner: &Pubkey,
+        owner_account_info: &AccountInfo
+    ) -> ProgramResult {
+        if expected_owner != owner_account_info.key {
+            return Err(TokenError::OwnerMismatch.into());
+        }
+        if !owner_account_info.is_signer {
+            return Err(ProgramError::MissingRequiredSignature);
+        }
         Ok(())
     }
 }

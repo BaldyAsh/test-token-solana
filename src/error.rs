@@ -1,4 +1,3 @@
-use num_derive::FromPrimitive;
 use solana_program::{
     decode_error::DecodeError,
     program_error::{ProgramError, PrintProgramError},
@@ -6,6 +5,7 @@ use solana_program::{
 };
 use thiserror::Error;
 use num_traits::FromPrimitive;
+use num_derive::FromPrimitive;
 
 #[derive(Clone, Debug, Eq, Error, FromPrimitive, PartialEq)]
 pub enum TokenError {
@@ -17,6 +17,18 @@ pub enum TokenError {
     NotRentExempt,
     #[error("Invalid mint")]
     InvalidMint,
+    #[error("Mint mismatch")]
+    MintMismatch,
+    #[error("Self transfer")]
+    SelfTransfer,
+    #[error("Insufficient funds")]
+    InsufficientFunds,
+    #[error("Overflow")]
+    Overflow,
+    #[error("Fixed supply")]
+    FixedSupply,
+    #[error("Owner mismatch")]
+    OwnerMismatch,
 }
 
 impl From<TokenError> for ProgramError {
@@ -41,6 +53,12 @@ impl PrintProgramError for TokenError {
             TokenError::InvalidInstruction => msg!("Error: Invalid instruction"),
             TokenError::AlreadyInUse => msg!("Error: Already in use"),
             TokenError::InvalidMint => msg!("Error: Invalid mint"),
+            TokenError::MintMismatch => msg!("Error: Mint mismatch"),
+            TokenError::SelfTransfer => msg!("Error: Self transfer"),
+            TokenError::InsufficientFunds => msg!("Error: Insufficient funds"),
+            TokenError::Overflow => msg!("Error: Overflow"),
+            TokenError::FixedSupply => msg!("Error: Fixed supply"),
+            TokenError::OwnerMismatch => msg!("Error: Owner mismatch"),
         }
     }
 }

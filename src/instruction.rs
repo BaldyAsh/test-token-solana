@@ -12,6 +12,10 @@ pub enum TokenInstruction {
         mint_authority: Pubkey
     },
     InitializeAccount,
+    Transfer { amount: u64, },
+    Approve { amount: u64, },
+    MintTo { amount: u64, },
+    Burn { amount: u64, },
 }
 
 impl TokenInstruction {

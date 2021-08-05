@@ -7,7 +7,6 @@ use solana_program::{
 use num_enum::TryFromPrimitive;
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 
-/// Mint data.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Mint {
@@ -29,8 +28,10 @@ impl Pack for Mint {
     const LEN: usize = 46;
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
         let src = array_ref![src, 0, 46];
+
         let (mint_authority, supply, decimals, is_initialized) =
             array_refs![src, 36, 8, 1, 1];
+
         let mint_authority = unpack_coption_key(mint_authority)?;
         let supply = u64::from_le_bytes(*supply);
         let decimals = decimals[0];
@@ -39,6 +40,7 @@ impl Pack for Mint {
             [1] => true,
             _ => return Err(ProgramError::InvalidAccountData),
         };
+
         Ok(Mint {
             mint_authority,
             supply,
@@ -48,18 +50,21 @@ impl Pack for Mint {
     }
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, 46];
+
         let (
             mint_authority_dst,
             supply_dst,
             decimals_dst,
             is_initialized_dst,
         ) = mut_array_refs![dst, 36, 8, 1, 1];
+
         let &Mint {
             ref mint_authority,
             supply,
             decimals,
             is_initialized,
         } = self;
+
         pack_coption_key(mint_authority, mint_authority_dst);
         *supply_dst = supply.to_le_bytes();
         decimals_dst[0] = decimals;
@@ -90,8 +95,10 @@ impl Pack for Account {
     const LEN: usize = 117;
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
         let src = array_ref![src, 0, 117];
+        
         let (mint, owner, amount, delegate, delegated_amount, state) =
             array_refs![src, 32, 32, 8, 36, 8, 1];
+
         Ok(Account {
             mint: Pubkey::new_from_array(*mint),
             owner: Pubkey::new_from_array(*owner),
@@ -112,6 +119,7 @@ impl Pack for Account {
             delegated_amount_dst,
             state_dst,
         ) = mut_array_refs![dst, 32, 32, 8, 36, 8, 1];
+
         let &Account {
             ref mint,
             ref owner,
@@ -120,6 +128,7 @@ impl Pack for Account {
             state,
             delegated_amount,
         } = self;
+
         mint_dst.copy_from_slice(mint.as_ref());
         owner_dst.copy_from_slice(owner.as_ref());
         *amount_dst = amount.to_le_bytes();
