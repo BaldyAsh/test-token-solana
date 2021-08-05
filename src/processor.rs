@@ -313,3 +313,112 @@ impl Processor {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::instruction::*;
+    use solana_program::{
+        account_info::IntoAccountInfo, clock::Epoch, instruction::Instruction, sysvar::rent,
+    };
+    use solana_sdk::account::{
+        create_account_for_test, create_is_signer_account_infos, Account as SolanaAccount,
+    };
+
+    fn do_process_instruction(
+        instruction: Instruction,
+        accounts: Vec<&mut SolanaAccount>,
+    ) -> ProgramResult {
+        let mut meta = instruction
+            .accounts
+            .iter()
+            .zip(accounts)
+            .map(|(account_meta, account)| (&account_meta.pubkey, account_meta.is_signer, account))
+            .collect::<Vec<_>>();
+
+        let account_infos = create_is_signer_account_infos(&mut meta);
+        Processor::process(&instruction.program_id, &account_infos, &instruction.data)
+    }
+
+    fn do_process_instruction_dups(
+        instruction: Instruction,
+        account_infos: Vec<AccountInfo>,
+    ) -> ProgramResult {
+        Processor::process(&instruction.program_id, &account_infos, &instruction.data)
+    }
+
+    fn rent_sysvar() -> SolanaAccount {
+        create_account_for_test(&Rent::default())
+    }
+
+    fn mint_minimum_balance() -> u64 {
+        Rent::default().minimum_balance(Mint::get_packed_len())
+    }
+
+    fn account_minimum_balance() -> u64 {
+        Rent::default().minimum_balance(Account::get_packed_len())
+    }
+
+    #[test]
+    fn test_pack_unpack_mint() {
+        // Mint
+        let mint = Mint {
+            mint_authority: COption::Some(Pubkey::new(&[1; 32])),
+            supply: 42,
+            decimals: 7,
+            is_initialized: true,
+        };
+        let mut packed = vec![0; Mint::get_packed_len() + 1];
+        assert_eq!(
+            Err(ProgramError::InvalidAccountData),
+            Mint::pack(mint, &mut packed)
+        );
+        let mut packed = vec![0; Mint::get_packed_len() - 1];
+        assert_eq!(
+            Err(ProgramError::InvalidAccountData),
+            Mint::pack(mint, &mut packed)
+        );
+        let mut packed = vec![0; Mint::get_packed_len()];
+        Mint::pack(mint, &mut packed).unwrap();
+        let expect = vec![
+            1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            1, 1, 1, 1, 1, 1, 1, 42, 0, 0, 0, 0, 0, 0, 0, 7, 1,
+        ];
+        assert_eq!(packed, expect);
+        let unpacked = Mint::unpack(&packed).unwrap();
+        assert_eq!(unpacked, mint);
+    }
+
+    #[test]
+    fn test_pack_unpack_account() {
+        // Account
+        let check = Account {
+            mint: Pubkey::new(&[1; 32]),
+            owner: Pubkey::new(&[2; 32]),
+            amount: 3,
+            delegate: COption::Some(Pubkey::new(&[4; 32])),
+            delegated_amount: 6,
+            state: AccountState::Initialized,
+        };
+        let mut packed = vec![0; Account::get_packed_len() + 1];
+        assert_eq!(
+            Err(ProgramError::InvalidAccountData),
+            Account::pack(check, &mut packed)
+        );
+        let mut packed = vec![0; Account::get_packed_len() - 1];
+        assert_eq!(
+            Err(ProgramError::InvalidAccountData),
+            Account::pack(check, &mut packed)
+        );
+        let mut packed = vec![0; Account::get_packed_len()];
+        Account::pack(check, &mut packed).unwrap();
+        let expect = vec![
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+            2, 2, 2, 2, 2, 2, 3, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 6, 0, 0, 0, 0, 0, 0, 0, 1
+        ];
+        assert_eq!(packed, expect);
+        let unpacked = Account::unpack(&packed).unwrap();
+        assert_eq!(unpacked, check);
+    }
+}

@@ -125,8 +125,8 @@ impl Pack for Account {
             ref owner,
             amount,
             ref delegate,
-            state,
             delegated_amount,
+            state,
         } = self;
 
         mint_dst.copy_from_slice(mint.as_ref());
